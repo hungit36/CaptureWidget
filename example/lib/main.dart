@@ -1,7 +1,10 @@
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:capture_widget/capture_widget.dart';
+import 'package:path_provider/path_provider.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,11 +19,97 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final _captureService = CaptureService.instance;
-  Image? image;
+
+  CameraController? controller;
+  File? _file;
 
   @override
   void initState() {
     super.initState();
+    initializeCamera();
+  }
+
+  List<CameraDescription> _cameras = [];
+
+  Future<void> initializeCamera() async {
+
+    _cameras = await availableCameras();
+
+    if (_cameras.isEmpty) {
+      return;
+    }
+
+    final firstCamera = _cameras.isNotEmpty ? _cameras[_cameras.length > 1 ? 1 : 0] : const CameraDescription(name: 'font', lensDirection: CameraLensDirection.front, sensorOrientation: 0); // back 0th index & front 1st index
+  
+    controller = CameraController(
+      firstCamera,
+      ResolutionPreset.medium,
+      enableAudio: false,
+    );
+
+    controller?.initialize().then((value) async {
+      controller?.setFlashMode(FlashMode.off);
+        setState(() {});
+    } );
+  }
+
+  Future<Directory> get _localPath async {
+    final directory = await getTemporaryDirectory();
+
+    return directory;
+  }
+
+  Future<File> get _localFile async {
+    final dicrect = await _localPath;
+    try {
+      final temp = dicrect.listSync().where((element) => element.path.split('.').last.toLowerCase() == 'png');
+      print('temp 0: ${temp.length}');
+      for (var p in temp) {
+        p.deleteSync();
+          print('delete: ${p.path}');
+      }
+    } catch (e){
+      print("error: $e");
+    }
+    final temp = dicrect.listSync().where((element) => element.path.split('.').last.toLowerCase() == 'png');
+    print('temp: ${temp.length}');
+    return File('${dicrect.path}/temp-${DateTime.now().toString()}.png');
+  }
+
+  Future<void> takePhoto() async {
+    try{
+      if (_file != null && _file?.existsSync() == true) {
+        setState(() {
+          
+          _file = null;
+          
+        });
+        await Future.delayed(const Duration(seconds: 3));
+      }
+
+        
+
+
+        final captureImage = await _captureService.captureImage();
+
+        
+
+        _file = await _localFile;
+
+        
+
+        if (captureImage == null || captureImage.isEmpty) {
+          return;
+        }
+
+        await _file?.writeAsBytes(captureImage);
+        
+        setState(() {
+          
+        });
+      }catch(_){
+        
+      }
   }
 
   @override
@@ -30,30 +119,23 @@ class _MyAppState extends State<MyApp> {
         appBar: AppBar(
           title: const Text('Plugin example app'),
         ),
-        body: image != null ? Center(child: image) : SingleChildScrollView(
-          child: CaptureWidget(overRepaintKey: _captureService.globalKey, child: Column(
-              children: List.generate(
-                30,
-                (i) => Container(
-                      color: Color((math.Random().nextDouble() * 0xFFFFFF).toInt()).withOpacity(1.0),
-                      height: 100,
+        body: _file != null ? Center(child: Image.file(_file!)) : Stack(
+              children: [
+                Positioned.fill(
+                  child: CaptureWidget(
+                    overRepaintKey: _captureService.globalKey,
+                    child: AspectRatio(
+                      aspectRatio: controller == null || controller?.value.isInitialized == false ? 1 : controller!.value.aspectRatio,
+                      child: Center(child: controller == null || controller?.value.isInitialized == false ? null : CameraPreview(controller!)),
                     ),
-              ),
+                  ),
+                ),
+                
+              ],
             ),
-          ),
-        ),
-        floatingActionButton: image == null
-            ? FloatingActionButton(
+        floatingActionButton: FloatingActionButton(
                 child: const Icon(Icons.camera),
-                onPressed: () async {
-                  final captureImage = await _captureService.captureImage();
-                  if (captureImage == null) return;
-                  setState(() => image = Image.memory(captureImage));
-                },
-              )
-            : FloatingActionButton(
-                onPressed: () => setState(() => image = null),
-                child: const Icon(Icons.remove),
+                onPressed: takePhoto,
               ),
       ),
     );
